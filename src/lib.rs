@@ -41,25 +41,28 @@ fn arbitrary_body(name: &Ident, body: &Body) -> Tokens {
     match *body {
         Body::Enum(..) => panic!("derive(Arbitrary) only supports structs"),
         Body::Struct(Struct(ref fields)) => {
-            let field = fields.iter().map(|field| &field.ident);
+            let field_name = fields.iter().map(|field| &field.ident);
             quote! {
                 #name {
-                    #(#field: ::quickcheck::Arbitrary::arbitrary(gen)),*
+                    #(#field_name: ::quickcheck::Arbitrary::arbitrary(gen)),*
                 }
             }
         },
         Body::Struct(Tuple(ref fields)) => {
-            let field = fields.iter().map(|field| &field.ident);
+            // Tuples have no field names but we use this to execute the loop in `quote!`.
+            // Otherwise, the loop will run zero times and produce invalid output for tuples with
+            // 1+ arity.
+            let field_name = fields.iter().map(|field| &field.ident);
             quote! {
                 #name (
-                    #(#field ::quickcheck::Arbitrary::arbitrary(gen)),*
+                    #(#field_name ::quickcheck::Arbitrary::arbitrary(gen)),*
                 )
             }
         },
         Body::Struct(Unit) => quote! {
             drop(gen);
             #name
-        }
+        },
     }
 }
 
@@ -68,25 +71,59 @@ fn shrink_body(name: &Ident, body: &Body) -> Tokens {
     match *body {
         Body::Enum(..) => panic!("derive(Arbitrary) only supports structs"),
         Body::Struct(Struct(ref fields)) => {
-            let field = &fields.iter().map(|field| &field.ident).collect::<Vec<_>>();
-            quote! {
-                let val = (#(self.#field.clone()),*);
+            // Safe to unwrap: there must be fields in structs
+            let field_name = fields.iter().map(|field| field.ident.as_ref().unwrap()).collect::<Vec<_>>();
+            // Just to circumvent the limitation of `quote!` which doesn't allow the same
+            // identifier to be bound more than once
+            let field_name2 = field_name.clone();
+            let cloned_for_field = &field_name.iter()
+                .map(|name| quote::Ident::new(format!("cloned_for_{}", name))).collect::<Vec<_>>();
 
-                Box::new(val.shrink().map(|(#(#field),*)| #name { #(#field),* }))
+            quote! {
+                #(
+                    let #cloned_for_field = self.clone();
+                )*
+
+                Box::new(
+                    ::std::iter::empty()
+                    #(
+                        .chain(self.#field_name.shrink().map(move |shr_value| {
+                            let mut result = #cloned_for_field.clone();
+                            result.#field_name2 = shr_value;
+                            result
+                        }))
+                    )*
+                )
             }
         },
         Body::Struct(Tuple(ref fields)) => {
-            let field = &(0..fields.len()).map(|i| format!("val_{}", i)).map(quote::Ident::new).collect::<Vec<_>>();
-            quote! {
-                let #name(#(#field),*) = self.clone();
-                let val = (#(#field),*);
+            let field_num = (0..fields.len()).map(|n| quote::Ident::new(n.to_string())).collect::<Vec<_>>();
+            // Just to circumvent the limitation of `quote!` which doesn't allow the same
+            // identifier to be bound more than once
+            let field_num2 = field_num.clone();
+            let cloned_for_field = &(0..fields.len())
+                .map(|num| quote::Ident::new(format!("cloned_for_{}", num))).collect::<Vec<_>>();
 
-                Box::new(val.shrink().map(|(#(#field),*)| #name(#(#field),*)))
+            quote! {
+                #(
+                    let #cloned_for_field = self.clone();
+                )*
+
+                Box::new(
+                    ::std::iter::empty()
+                    #(
+                        .chain(self.#field_num.shrink().map(move |shr_value| {
+                            let mut result = #cloned_for_field.clone();
+                            result.#field_num2 = shr_value;
+                            result
+                        }))
+                    )*
+                )
             }
         },
         Body::Struct(Unit) => quote! {
             ::quickcheck::empty_shrinker()
-        }
+        },
     }
 }
 
