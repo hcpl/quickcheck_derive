@@ -42,6 +42,25 @@ struct BigStruct {
     l: TupleStruct,
 }
 
+#[derive(Arbitrary, Clone, Debug, PartialEq)]
+enum EnumWithUnitVariant {
+    UnitVariant,
+    StructVariant {
+        a: u64,
+        b: (u8, u8, u16),
+    },
+    TupleVariant(i8, i16, i32, i64),
+}
+
+#[derive(Arbitrary, Clone, Debug, PartialEq)]
+enum EnumWithoutUnitVariant {
+    StructVariant {
+        a: u64,
+        b: (u8, u8, u16),
+    },
+    TupleVariant(i8, i16, i32, i64),
+}
+
 #[test]
 fn unit_struct() {
     let ref mut gen = gen();
@@ -93,6 +112,22 @@ fn big_struct() {
         l: TupleStruct(-4, "".into()),
     });
 }
+
+#[test]
+fn enum_with_unit_variant() {
+    let ref mut gen = gen();
+    assert_eq!(EnumWithUnitVariant::arbitrary(gen), EnumWithUnitVariant::StructVariant {
+        a: 2,
+        b: (1, 2, 3),
+    });
+}
+
+#[test]
+fn enum_without_unit_variant() {
+    let ref mut gen = gen();
+    assert_eq!(EnumWithoutUnitVariant::arbitrary(gen), EnumWithoutUnitVariant::TupleVariant(-3, -2, -3, 3));
+}
+
 
 fn gen() -> StdGen<IsaacRng> {
     let max_size = 4;
