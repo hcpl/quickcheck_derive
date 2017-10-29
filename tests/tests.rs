@@ -7,7 +7,7 @@ extern crate rand;
 use std::fmt;
 use std::i32;
 
-use quickcheck::{Arbitrary, StdGen};
+use quickcheck::{Arbitrary, Gen, StdGen};
 use rand::{ThreadRng, thread_rng};
 
 
@@ -65,6 +65,48 @@ enum EnumWithoutUnitVariant {
         b: (u8, u8, u16),
     },
     TupleVariant(i8, i16, i32, i64),
+}
+
+
+#[derive(Arbitrary, Clone, Debug, PartialEq)]
+enum List<T> {
+    Nil,
+    Cons(T, MyBox<List<T>>),
+}
+
+#[derive(Arbitrary, Clone, Debug, PartialEq)]
+enum SpaceEfficientList<T> {
+    Empty,
+    More(MyBox<Node<T>>),
+}
+
+#[derive(Arbitrary, Clone, Debug, PartialEq)]
+struct Node<T> {
+    elem: T,
+    next: SpaceEfficientList<T>,
+}
+
+// TODO: Uncomment after implementing variant prioritization.
+/*// TODO: Replace by plain Box<T> after it gets an Arbitrary impl
+#[derive(Arbitrary, Clone, Debug, PartialEq)]
+enum Tree<T> {
+    Leaf(T),
+    Node(MyBox<Tree<T>>, MyBox<Tree<T>>),
+}*/
+
+#[derive(Clone, Debug, PartialEq)]
+struct MyBox<T>(Box<T>);
+
+impl<T: Arbitrary> Arbitrary for MyBox<T> {
+    fn arbitrary<G: Gen>(g: &mut G) -> MyBox<T> {
+        MyBox(Box::new(T::arbitrary(g)))
+    }
+
+    fn shrink(&self) -> Box<Iterator<Item=MyBox<T>>> {
+        Box::new(
+            (*self.0).shrink().map(Box::new).map(MyBox)
+        )
+    }
 }
 
 
@@ -130,6 +172,11 @@ check_shrinkage! {
     enum_without_unit_variant =>
         EnumWithoutUnitVariant::StructVariant { a: 0, b: (0, 0, 0) },
         EnumWithoutUnitVariant::TupleVariant(0, 0, 0, 0);
+
+    list => List::Nil::<u64>;
+    space_efficient_list => SpaceEfficientList::Empty::<String>;
+    //tree => Tree::Leaf::<String>("".into());
+    my_box => MyBox(Box::<Option<Result<Option<()>, Option<()>>>>::new(None));
 }
 
 
