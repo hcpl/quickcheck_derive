@@ -66,7 +66,7 @@ fn arbitrary_body(name: &Ident, body: &Body) -> Tokens {
             let opt_unreachable = if variants_count == usize::MAX {
                 None
             } else {
-                Some(quote! { _ => unreachable!() })
+                Some(quote! { x => unreachable!("A number generated out of range: {}", x), })
             };
 
             quote! {
@@ -133,7 +133,7 @@ fn shrink_body(name: &Ident, body: &Body) -> Tokens {
             let opt_unreachable = &if variants.len() == 1 {
                 None
             } else {
-                Some(quote! { _ => unreachable!(), })
+                Some(quote! { _ => unreachable!("Must not be matched while shrinking"), })
             };
 
             let arms = variants.iter().map(|variant| {

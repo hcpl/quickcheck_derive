@@ -1,12 +1,15 @@
+extern crate quickcheck;
 #[macro_use]
 extern crate quickcheck_derive;
-extern crate quickcheck;
 extern crate rand;
 
+
+use std::fmt;
 use std::i32;
 
 use quickcheck::{Arbitrary, StdGen};
 use rand::IsaacRng;
+
 
 #[derive(Arbitrary, Clone, Debug, PartialEq)]
 struct UnitStruct;
@@ -43,6 +46,9 @@ struct BigStruct {
 }
 
 #[derive(Arbitrary, Clone, Debug, PartialEq)]
+enum EnumEmpty {}
+
+#[derive(Arbitrary, Clone, Debug, PartialEq)]
 enum EnumWithUnitVariant {
     UnitVariant,
     StructVariant {
@@ -61,75 +67,91 @@ enum EnumWithoutUnitVariant {
     TupleVariant(i8, i16, i32, i64),
 }
 
-#[test]
-fn unit_struct() {
-    let ref mut gen = gen();
-    assert_eq!(UnitStruct::arbitrary(gen), UnitStruct);
+
+// Generates a random value, shrinks it and matches it against correct minimums provided as
+// arguments
+macro_rules! check_shrinkage {
+    ($( $prop_name:ident => $($minimum_values:expr),*; )*) => {
+        $(
+            #[test]
+            fn $prop_name() {
+                let mut gen = gen();
+                let generated = Arbitrary::arbitrary(&mut gen);
+                let minimum = shrink_to_minimum(&generated);
+
+                // Not using .expect() because it causes type inference problems
+                if minimum.is_none() {
+                    panic!("Shrinking unsuccessful with the starting value {:?}", generated);
+                }
+
+                $( if minimum == Some($minimum_values) { return; } )*
+
+                // Output allowed values on different lines
+                panic!("Result of shrinking\n{:?}\ndoesn't match with any of the allowed values:\n{}",
+                    minimum.unwrap(), [$( format!("{:?}\n", $minimum_values) ),*].join(""));
+            }
+        )*
+    };
 }
 
-#[test]
-fn struct_struct() {
-    let ref mut gen = gen();
-    assert_eq!(StructStruct::arbitrary(gen), StructStruct {
-        a: -2,
-        b: "ẩ".into(),
-    });
-}
-
-#[test]
-fn tuple_struct() {
-    let ref mut gen = gen();
-    assert_eq!(TupleStruct::arbitrary(gen), TupleStruct(
-        -2,
-        "ẩ".into(),
-    ));
-}
-
-#[test]
-fn generic_struct() {
-    let ref mut gen = gen();
-    assert_eq!(GenericStruct::<i32,String>::arbitrary(gen), GenericStruct {
-        t: -2,
-        u: "ẩ".into(),
-    });
-}
-
-#[test]
-fn big_struct() {
-    let ref mut gen = gen();
-    assert_eq!(BigStruct::arbitrary(gen), BigStruct {
-        a: 3,
+check_shrinkage! {
+    unit_struct => UnitStruct;
+    struct_struct => StructStruct { a: 0, b: "".into() };
+    tuple_struct => TupleStruct(0, "".into());
+    generic_struct => GenericStruct::<i32, String> { t: 0, u: "".into() };
+    big_struct => BigStruct {
+        a: 0,
         b: UnitStruct,
-        c: true,
-        d: (-2, -3, -2),
-        e: vec![1],
-        f: StructStruct { a: -3, b: "\u{80}\u{f}".into() },
-        g: (2,),
-        h: -3,
-        i: GenericStruct { t: (), u: "뗸".into() },
-        j: Some(-3),
-        k: Err(vec![()]),
-        l: TupleStruct(-4, "".into()),
-    });
+        c: false,
+        d: (0, 0, 0),
+        e: vec![],
+        f: StructStruct { a: 0, b: "".into() },
+        g: (0,),
+        h: 0,
+        i: GenericStruct { t: (), u: "".into() },
+        j: None,
+        k: Ok(None),  // <- they differ here
+        l: TupleStruct(0, "".into()),
+    }, BigStruct {
+        a: 0,
+        b: UnitStruct,
+        c: false,
+        d: (0, 0, 0),
+        e: vec![],
+        f: StructStruct { a: 0, b: "".into() },
+        g: (0,),
+        h: 0,
+        i: GenericStruct { t: (), u: "".into() },
+        j: None,
+        k: Err(vec![]),  // <- they differ here
+        l: TupleStruct(0, "".into()),
+    };
+    enum_with_unit_variant => EnumWithUnitVariant::UnitVariant;
+    enum_without_unit_variant => EnumWithoutUnitVariant::TupleVariant(0, 0, 0, 0);
 }
 
-#[test]
-fn enum_with_unit_variant() {
-    let ref mut gen = gen();
-    assert_eq!(EnumWithUnitVariant::arbitrary(gen), EnumWithUnitVariant::StructVariant {
-        a: 2,
-        b: (1, 2, 3),
-    });
-}
 
-#[test]
-fn enum_without_unit_variant() {
-    let ref mut gen = gen();
-    assert_eq!(EnumWithoutUnitVariant::arbitrary(gen), EnumWithoutUnitVariant::TupleVariant(-3, -2, -3, 3));
-}
+fn shrink_to_minimum<T: Clone + fmt::Debug + Arbitrary>(value: &T) -> Option<T> {
+    let mut iter = value.shrink().peekable();
 
+    // Hit the bottom, we're good
+    if iter.peek().is_none() {
+        return Some(value.clone());
+    }
+
+    for shrinked in iter {
+        println!("{:?}", &shrinked);  // cargo shows stdout & stderr if tests fail
+        // Found minimum for `shrinked` => found minimum for `value`
+        if let minimum @ Some(_) = shrink_to_minimum(&shrinked) {
+            return minimum;
+        }
+    }
+
+    // No minimum found :(
+    return None;
+}
 
 fn gen() -> StdGen<IsaacRng> {
-    let max_size = 4;
+    let max_size = 4096;  // Let's shrink from a large state space
     StdGen::new(IsaacRng::new_unseeded(), max_size)
 }
