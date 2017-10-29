@@ -8,7 +8,7 @@ use std::fmt;
 use std::i32;
 
 use quickcheck::{Arbitrary, StdGen};
-use rand::IsaacRng;
+use rand::{ThreadRng, thread_rng};
 
 
 #[derive(Arbitrary, Clone, Debug, PartialEq)]
@@ -127,7 +127,9 @@ check_shrinkage! {
         l: TupleStruct(0, "".into()),
     };
     enum_with_unit_variant => EnumWithUnitVariant::UnitVariant;
-    enum_without_unit_variant => EnumWithoutUnitVariant::TupleVariant(0, 0, 0, 0);
+    enum_without_unit_variant =>
+        EnumWithoutUnitVariant::StructVariant { a: 0, b: (0, 0, 0) },
+        EnumWithoutUnitVariant::TupleVariant(0, 0, 0, 0);
 }
 
 
@@ -151,7 +153,7 @@ fn shrink_to_minimum<T: Clone + fmt::Debug + Arbitrary>(value: &T) -> Option<T> 
     return None;
 }
 
-fn gen() -> StdGen<IsaacRng> {
+fn gen() -> StdGen<ThreadRng> {
     let max_size = 4096;  // Let's shrink from a large state space
-    StdGen::new(IsaacRng::new_unseeded(), max_size)
+    StdGen::new(thread_rng(), max_size)
 }
